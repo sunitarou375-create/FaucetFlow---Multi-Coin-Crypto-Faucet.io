@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   LogIn,
   UserPlus,
@@ -10,6 +10,7 @@ import {
   AlertCircle,
   ShieldCheck,
   Lock,
+  RotateCcw,
 } from 'lucide-react';
 import { db } from '../lib/database.ts';
 import { sound } from '../lib/sound.ts';
@@ -36,9 +37,30 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [success, setSuccess] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const allUsers = db.getAllUsers();
+
+  const handleResetForm = () => {
+    sound.playClickSound();
+    setEmail('');
+    setPassword('');
+    setUsername('');
+    setReferrerId('');
+    setError(null);
+    setSuccess(null);
+  };
 
   const handleSignIn = (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,12 +92,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           onClose();
         }, 500);
       } else {
-        // If account doesn't exist, provide quick option to sign up
-        setError(`No account found for "${cleanEmail}". Please check your email or click Sign Up.`);
-        sound.playErrorSound();
-        setIsLoading(false);
+        // Auto-create free account for any email instantly with zero restrictions
+        try {
+          const newUser = db.createUser(cleanEmail);
+          db.setCurrentUserId(newUser.id);
+          sound.playCoinSound();
+          setSuccess(`Free account automatically created for ${cleanEmail}! Ready to claim.`);
+          setTimeout(() => {
+            setIsLoading(false);
+            onSuccess();
+            onClose();
+          }, 500);
+        } catch {
+          setIsLoading(false);
+          setError('Could not initialize account. Please try again.');
+        }
       }
-    }, 400);
+    }, 350);
   };
 
   const handleSignUp = (e: React.FormEvent) => {
@@ -83,9 +116,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setError(null);
     setSuccess(null);
 
-    const cleanEmail = email.trim();
+    const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail) {
-      setError('Please provide a valid email address.');
+      setError('Please provide any valid email address.');
       return;
     }
 
@@ -94,6 +127,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     setTimeout(() => {
       try {
+        // If email already exists, log in seamlessly for free
+        const existing = allUsers.find((u) => u.email.toLowerCase() === cleanEmail);
+        if (existing) {
+          db.setCurrentUserId(existing.id);
+          sound.playCoinSound();
+          setSuccess(`Account found! Logged in free as ${existing.email}.`);
+          setTimeout(() => {
+            setIsLoading(false);
+            onSuccess();
+            onClose();
+          }, 500);
+          return;
+        }
+
+        // Create 100% free user with instant crypto balances initialized
         const newUser = db.createUser(
           cleanEmail,
           username.trim() || undefined,
@@ -102,18 +150,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         db.setCurrentUserId(newUser.id);
         sound.playCoinSound();
-        setSuccess(`Account created for ${newUser.email}! Profile and 4 crypto balances initialized.`);
+        setSuccess(`100% Free Account created for ${newUser.email}! Balances active.`);
         setTimeout(() => {
           setIsLoading(false);
           onSuccess();
           onClose();
-        }, 600);
+        }, 500);
       } catch (err: unknown) {
         setIsLoading(false);
         sound.playErrorSound();
         setError(err instanceof Error ? err.message : 'Sign up failed.');
       }
-    }, 400);
+    }, 350);
   };
 
   const handleSelectQuickAccount = (userId: string) => {
@@ -125,8 +173,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="relative w-full max-w-md bg-[#0F141E] border border-slate-800 rounded-3xl p-6 sm:p-7 shadow-2xl text-slate-200 overflow-hidden">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150 cursor-pointer"
+      onClick={onClose}
+    >
+      <div
+        className="relative w-full max-w-md bg-[#0F141E] border border-slate-800 rounded-3xl p-6 sm:p-7 shadow-2xl text-slate-200 overflow-hidden cursor-default"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -227,23 +281,35 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </div>
             </div>
 
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-amber-500/20 active:scale-[0.99] transition-all cursor-pointer flex items-center justify-center gap-2"
-            >
-              {isLoading ? (
-                <>
-                  <span className="w-3.5 h-3.5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
-                  <span>Signing In...</span>
-                </>
-              ) : (
-                <>
-                  <LogIn className="w-3.5 h-3.5" />
-                  <span>Sign In to FaucetFlow</span>
-                </>
-              )}
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleResetForm}
+                className="px-3.5 py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-400 hover:text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                title="Reset all form fields"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Reset</span>
+              </button>
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="flex-1 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-amber-500/20 active:scale-[0.99] transition-all cursor-pointer flex items-center justify-center gap-2"
+              >
+                {isLoading ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                    <span>Signing In...</span>
+                  </>
+                ) : (
+                  <>
+                    <LogIn className="w-3.5 h-3.5" />
+                    <span>Sign In Free</span>
+                  </>
+                )}
+              </button>
+            </div>
 
             {/* Quick Demo Switcher Accounts */}
             <div className="pt-3 border-t border-slate-800/80">
@@ -258,14 +324,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       key={u.id}
                       type="button"
                       onClick={() => handleSelectQuickAccount(u.id)}
-                      className="p-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 rounded-xl text-left transition-colors"
+                      className="p-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 rounded-xl text-left transition-colors cursor-pointer"
                     >
                       <div className="flex items-center gap-1.5 font-semibold text-xs text-white truncate">
                         {isUserAdmin && <ShieldCheck className="w-3 h-3 text-amber-400 shrink-0" />}
                         <span className="truncate">{u.email.split('@')[0]}</span>
                       </div>
                       <div className="text-[10px] text-slate-400">
-                        {isUserAdmin ? 'Admin Account' : 'Referee Account'}
+                        {isUserAdmin ? 'Admin Account' : 'Standard Referee'}
                       </div>
                     </button>
                   );
@@ -283,7 +349,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="new.user@example.com"
+                  placeholder="any.email@example.com"
                   className="w-full pl-9 pr-3.5 py-2.5 bg-slate-900 border border-slate-800 focus:border-amber-500 rounded-xl text-xs text-white placeholder:text-slate-600 outline-none transition-colors"
                 />
                 <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
@@ -319,27 +385,39 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <LinkIcon className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
               </div>
               <p className="text-[11px] text-slate-400">
-                Your referrer will automatically receive 10% commission on every claim you make.
+                Any referrer receives 10% instant commission on every faucet claim.
               </p>
             </div>
 
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-amber-500/20 active:scale-[0.99] transition-all cursor-pointer flex items-center justify-center gap-2"
-            >
-              {isLoading ? (
-                <>
-                  <span className="w-3.5 h-3.5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
-                  <span>Creating Account...</span>
-                </>
-              ) : (
-                <>
-                  <UserPlus className="w-3.5 h-3.5" />
-                  <span>Create Account & Start Claiming</span>
-                </>
-              )}
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleResetForm}
+                className="px-3.5 py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-400 hover:text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                title="Reset all form fields"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Reset</span>
+              </button>
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="flex-1 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-amber-500/20 active:scale-[0.99] transition-all cursor-pointer flex items-center justify-center gap-2"
+              >
+                {isLoading ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                    <span>Creating Free Account...</span>
+                  </>
+                ) : (
+                  <>
+                    <UserPlus className="w-3.5 h-3.5" />
+                    <span>Free Sign Up & Claim</span>
+                  </>
+                )}
+              </button>
+            </div>
           </form>
         )}
 
