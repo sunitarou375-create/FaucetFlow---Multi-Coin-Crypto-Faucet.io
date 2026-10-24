@@ -1,0 +1,6 @@
+{
+  "name": "FaucetFlow - Multi-Coin Crypto Faucet",
+  "description": "High-yield cryptocurrency faucet supporting BTC, LTC, DOGE, and USDT with instant rewards, referral commissions, and anti-abuse safeguards.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
